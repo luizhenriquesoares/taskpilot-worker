@@ -23,7 +23,7 @@ export interface EnvConfig {
   port: number;
   sqsQueueUrl: string;
   awsRegion: string;
-  anthropicApiKey: string;
+  claudeOauthToken: string;
   ghToken: string;
   trelloKey: string;
   trelloToken: string;

@@ -58,6 +58,11 @@ export async function runClaude(options: HeadlessRunnerOptions): Promise<ClaudeR
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       signal,
+      env: {
+        ...process.env,
+        // Claude Code uses CLAUDE_CODE_OAUTH_TOKEN for subscription auth (Max Pro)
+        // Falls back to ANTHROPIC_API_KEY if set
+      },
     });
 
     let stdout = '';

@@ -11,7 +11,7 @@ export function loadEnvConfig(): EnvConfig {
     port: parseInt(process.env.PORT || '3000', 10),
     sqsQueueUrl: requireEnv('SQS_QUEUE_URL'),
     awsRegion: process.env.AWS_REGION || 'us-east-1',
-    anthropicApiKey: requireEnv('ANTHROPIC_API_KEY'),
+    claudeOauthToken: requireEnv('CLAUDE_CODE_OAUTH_TOKEN'),
     ghToken: requireEnv('GH_TOKEN'),
     trelloKey: requireEnv('TRELLO_KEY'),
     trelloToken: requireEnv('TRELLO_TOKEN'),
