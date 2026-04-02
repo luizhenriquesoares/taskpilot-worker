@@ -17,28 +17,28 @@
     {
       "id": "65b7aa1ea6a0e4441a5c2281",
       "name": "Mais Milhas V2",
-      "repoUrl": "https://github.com/maismilhas-br/maismilhas-v2",
+      "repoUrl": "https://github.com/maismilhas-br/maismilhas.site.web",
       "baseBranch": "main",
       "branchPrefix": "feat/"
     },
     {
       "id": "65b12c0e40fb7b8b9d74990f",
       "name": "MilhasNexus",
-      "repoUrl": "https://github.com/maismilhas-br/nexus-mileage-ai",
+      "repoUrl": "https://github.com/maismilhas-br/maismilhas.nexus.app",
       "baseBranch": "main",
       "branchPrefix": "feat/"
     },
     {
       "id": "65b7a954fbd8c9fa3c9bed73",
       "name": "Site American",
-      "repoUrl": "https://github.com/luizhenriquesoares/air-miles-advantage",
+      "repoUrl": "https://github.com/maismilhas-br/maismilhas.aa.landing",
       "baseBranch": "main",
       "branchPrefix": "feat/"
     },
     {
       "id": "65b7a94e71f183610d747e2d",
       "name": "AI content",
-      "repoUrl": "https://github.com/maismilhas-br/web-mais-milhas",
+      "repoUrl": "https://github.com/maismilhas-br/maismilhas.content.ai",
       "baseBranch": "main",
       "branchPrefix": "feat/"
     }
