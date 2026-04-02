@@ -1,7 +1,7 @@
 import { RepoManager } from '../../git/repo-manager.js';
 import { TrelloApi } from '../../trello/api.js';
 import { PromptBuilder } from '../../claude/prompt-builder.js';
-import { runClaude } from '../../claude/headless-runner.js';
+import { runClaude, type ClaudeStreamEvent } from '../../claude/headless-runner.js';
 import { KnowledgeManager } from '../../claude/knowledge.js';
 import { TrelloCommenter } from '../../notifications/trello-commenter.js';
 import type { WorkerEvent } from '../../shared/types/worker-event.js';
@@ -30,7 +30,7 @@ export class ImplementStage {
     this.knowledgeMgr = new KnowledgeManager();
   }
 
-  async execute(event: WorkerEvent): Promise<ImplementResult> {
+  async execute(event: WorkerEvent, onEvent?: (e: ClaudeStreamEvent) => void): Promise<ImplementResult> {
     const startTime = Date.now();
 
     const card = await this.fetchFullCard(event.cardId);
@@ -67,6 +67,7 @@ export class ImplementStage {
     const runResult = await runClaude({
       cwd: workDir,
       prompt,
+      onEvent,
     });
 
     const costUsd = runResult.costUsd ?? 0;

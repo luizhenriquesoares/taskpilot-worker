@@ -6,6 +6,7 @@ import { TrelloApi } from '../trello/api.js';
 import { TrelloCommenter } from '../notifications/trello-commenter.js';
 import { SlackNotifier } from '../notifications/slack.js';
 import { JobTracker } from '../tracking/job-tracker.js';
+import { StreamBroadcaster } from '../server/websocket.js';
 import { PipelineStage } from '../shared/types/pipeline-stage.js';
 import type { WorkerEvent } from '../shared/types/worker-event.js';
 import type { BoardConfig } from '../config/types.js';
@@ -27,6 +28,7 @@ export class PipelineOrchestrator {
     private readonly slackNotifier: SlackNotifier,
     private readonly boardConfig: BoardConfig,
     private readonly jobTracker?: JobTracker,
+    private readonly broadcaster?: StreamBroadcaster,
   ) {}
 
   async processEvent(event: WorkerEvent, pipelineContext?: PipelineContext): Promise<void> {
@@ -49,17 +51,21 @@ export class PipelineOrchestrator {
 
     // Track job start
     const jobId = this.jobTracker?.start(event.cardId, cardName, event.projectName || 'Unknown', stageName);
+    this.broadcaster?.notifyJobStart(event.cardId, cardName, stageName);
+
+    // Create stream handler for real-time updates
+    const onEvent = this.broadcaster?.createStreamHandler(event.cardId, cardName, stageName);
 
     try {
       switch (event.stage) {
         case PipelineStage.IMPLEMENT:
-          await this.handleImplement(event);
+          await this.handleImplement(event, onEvent);
           break;
         case PipelineStage.REVIEW:
-          await this.handleReview(event, pipelineContext);
+          await this.handleReview(event, pipelineContext, onEvent);
           break;
         case PipelineStage.QA:
-          await this.handleQa(event, pipelineContext);
+          await this.handleQa(event, pipelineContext, onEvent);
           break;
         default: {
           const exhaustiveCheck: never = event.stage;
@@ -74,14 +80,15 @@ export class PipelineOrchestrator {
           prUrl: pipelineContext?.prUrl,
         });
       }
+      this.broadcaster?.notifyJobComplete(event.cardId, cardName, stageName, 'Completed successfully');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       console.error(`[Orchestrator] Stage ${event.stage} failed for card ${event.cardId}: ${errorMessage}`);
 
-      // Track job failure
       if (jobId) {
         this.jobTracker?.fail(jobId, errorMessage);
       }
+      this.broadcaster?.notifyJobFail(event.cardId, cardName, stageName, errorMessage);
 
       await this.commenter.postError(event.cardId, event.stage, errorMessage).catch((commentErr) => {
         console.error(`[Orchestrator] Failed to post error comment: ${(commentErr as Error).message}`);
@@ -91,11 +98,11 @@ export class PipelineOrchestrator {
     }
   }
 
-  private async handleImplement(event: WorkerEvent): Promise<void> {
+  private async handleImplement(event: WorkerEvent, onEvent?: (e: import('../claude/headless-runner.js').ClaudeStreamEvent) => void): Promise<void> {
     // Move card to doing list
     await this.trelloApi.moveCard(event.cardId, this.boardConfig.lists.doing);
 
-    const result = await this.implementStage.execute(event);
+    const result = await this.implementStage.execute(event, onEvent);
 
     // Move card to review list
     await this.trelloApi.moveCard(event.cardId, this.boardConfig.lists.review);

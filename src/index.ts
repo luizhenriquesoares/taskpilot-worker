@@ -15,6 +15,7 @@ import { loadEnvConfig } from './config/env.js';
 import { loadBoardConfig } from './config/board-config.js';
 import { JobTracker } from './tracking/job-tracker.js';
 import { LogBuffer } from './tracking/log-buffer.js';
+import { StreamBroadcaster } from './server/websocket.js';
 
 // --- Globals ---
 
@@ -69,10 +70,12 @@ async function main(): Promise<void> {
     slackNotifier,
     boardConfig,
     jobTracker,
+    broadcaster,
   );
 
-  // Job tracker
+  // Job tracker + WebSocket broadcaster
   const jobTracker = new JobTracker();
+  const broadcaster = new StreamBroadcaster();
 
   // Webhook handler + Express server
   const webhookHandler = new WebhookHandler(
@@ -87,6 +90,9 @@ async function main(): Promise<void> {
   const server = app.listen(envConfig.port, () => {
     console.log(`[Worker] Express server listening on port ${envConfig.port}`);
   });
+
+  // Attach WebSocket server for real-time streaming
+  broadcaster.attach(server);
 
   // Graceful shutdown
   const shutdown = async (): Promise<void> => {
