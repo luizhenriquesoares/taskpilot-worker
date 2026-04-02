@@ -47,6 +47,8 @@ export async function runClaude(options: HeadlessRunnerOptions): Promise<ClaudeR
     '--output-format',
     'stream-json',
     '--verbose',
+    '--model',
+    'opus',
   ];
 
   if (maxBudgetUsd !== undefined) {
