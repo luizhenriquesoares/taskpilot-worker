@@ -50,7 +50,6 @@ export class ReviewStage {
       await this.repoManager.clone(event.repoUrl, workDir, event.baseBranch);
     }
     await this.repoManager.checkoutBranch(workDir, branchName);
-    }
 
     // Get PR URL
     let prUrl = context.prUrl;
