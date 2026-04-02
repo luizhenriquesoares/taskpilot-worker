@@ -44,8 +44,25 @@ export function createApp(webhookHandler: WebhookHandler, jobTracker: JobTracker
     res.json(jobTracker.getJobs());
   });
 
-  app.get('/api/logs', (_req, res) => {
-    res.json(logBuffer.getAll());
+  app.get('/api/logs', (req, res) => {
+    const { level, stage, project, limit } = req.query;
+    res.json(logBuffer.query({
+      level: level as string,
+      stage: stage as string,
+      project: project as string,
+      limit: limit ? parseInt(limit as string, 10) : undefined,
+    }));
+  });
+
+  // Metrics endpoint
+  app.get('/api/metrics', (_req, res) => {
+    const stats = jobTracker.getStats();
+    res.json({
+      ...stats,
+      uptime: process.uptime(),
+      memoryMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+      timestamp: new Date().toISOString(),
+    });
   });
 
   // Trello webhook verification (HEAD)

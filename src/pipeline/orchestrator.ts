@@ -69,21 +69,31 @@ export class PipelineOrchestrator {
     const onEvent = this.broadcaster?.createStreamHandler(event.cardId, cardName, stageName);
 
     try {
-      switch (event.stage) {
-        case PipelineStage.IMPLEMENT:
-          await this.handleImplement(event, onEvent);
-          break;
-        case PipelineStage.REVIEW:
-          await this.handleReview(event, pipelineContext, onEvent);
-          break;
-        case PipelineStage.QA:
-          await this.handleQa(event, pipelineContext, onEvent);
-          break;
-        default: {
-          const exhaustiveCheck: never = event.stage;
-          throw new Error(`Unknown pipeline stage: ${exhaustiveCheck}`);
+      // Timeout: max 20 minutes per stage (prevent infinite loops)
+      const STAGE_TIMEOUT_MS = 20 * 60 * 1000;
+      const stagePromise = (async () => {
+        switch (event.stage) {
+          case PipelineStage.IMPLEMENT:
+            await this.handleImplement(event, onEvent);
+            break;
+          case PipelineStage.REVIEW:
+            await this.handleReview(event, pipelineContext, onEvent);
+            break;
+          case PipelineStage.QA:
+            await this.handleQa(event, pipelineContext, onEvent);
+            break;
+          default: {
+            const exhaustiveCheck: never = event.stage;
+            throw new Error(`Unknown pipeline stage: ${exhaustiveCheck}`);
+          }
         }
-      }
+      })();
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Stage ${stageName} timed out after 20 minutes`)), STAGE_TIMEOUT_MS),
+      );
+
+      await Promise.race([stagePromise, timeoutPromise]);
 
       // Track job success
       if (jobId) {
@@ -105,8 +115,15 @@ export class PipelineOrchestrator {
       await this.commenter.postError(event.cardId, event.stage, errorMessage).catch((commentErr) => {
         console.error(`[Orchestrator] Failed to post error comment: ${(commentErr as Error).message}`);
       });
-
-      await this.slackNotifier.notifyError(event.cardId, event.stage, errorMessage).catch(() => {});
+    } finally {
+      // Cleanup /tmp repos to prevent disk overflow
+      if (pipelineContext?.workDir) {
+        try {
+          const { rm } = await import('fs/promises');
+          await rm(pipelineContext.workDir, { recursive: true, force: true });
+          console.log(`[Orchestrator] Cleaned up: ${pipelineContext.workDir}`);
+        } catch { /* ignore cleanup errors */ }
+      }
     }
   }
 
