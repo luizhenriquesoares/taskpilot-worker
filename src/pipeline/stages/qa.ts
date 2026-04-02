@@ -41,14 +41,13 @@ export class QaStage {
       this.promptBuilder.setRules(event.rules);
     }
 
-    // Checkout the branch (clone fresh if workDir is gone)
-    try {
-      await this.repoManager.checkoutBranch(workDir, branchName);
-    } catch {
-      console.log('[QA] workDir missing, cloning fresh');
+    // Check if workDir exists, clone fresh if not (container restart loses /tmp)
+    const fs = await import('fs');
+    if (!fs.existsSync(workDir)) {
+      console.log(`[QA] workDir ${workDir} missing (container restarted?), cloning fresh`);
       await this.repoManager.clone(event.repoUrl, workDir, event.baseBranch);
-      await this.repoManager.checkoutBranch(workDir, branchName);
     }
+    await this.repoManager.checkoutBranch(workDir, branchName);
 
     // Get PR URL
     const prUrl = context.prUrl || (await this.repoManager.getPrUrl(workDir, branchName)) || '';

@@ -24,6 +24,10 @@ export class RepoManager {
       proc.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
       proc.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
 
+      proc.on('error', (err) => {
+        reject(new Error(`git ${args.join(' ')} spawn error: ${err.message}`));
+      });
+
       proc.on('close', (code) => {
         if (code === 0) {
           resolve(stdout.trim());
