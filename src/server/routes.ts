@@ -44,6 +44,11 @@ export function createApp(webhookHandler: WebhookHandler, jobTracker: JobTracker
     res.json(jobTracker.getJobs());
   });
 
+  app.post('/api/jobs/clear', (_req, res) => {
+    jobTracker.clear();
+    res.json({ cleared: true });
+  });
+
   app.get('/api/logs', (req, res) => {
     const { level, stage, project, limit } = req.query;
     res.json(logBuffer.query({

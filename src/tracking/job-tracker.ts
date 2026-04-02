@@ -75,6 +75,12 @@ export class JobTracker {
     this.activeJobs.delete(id);
   }
 
+  /** Clear all job history */
+  clear(): void {
+    this.jobs = [];
+    this.activeJobs.clear();
+  }
+
   /** Get all jobs (most recent first) */
   getJobs(): TrackedJob[] {
     return this.jobs;
