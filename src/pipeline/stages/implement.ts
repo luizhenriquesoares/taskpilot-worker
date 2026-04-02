@@ -80,17 +80,32 @@ export class ImplementStage {
       console.warn(`[Implement] Claude exited with code ${runResult.exitCode}`);
     }
 
-    // Check if Claude made any commits
-    const commitLog = await this.repoManager.getCommitLog(workDir);
+    // Check if there are commits to push (new or from previous run)
+    let commitLog = '';
+    try {
+      commitLog = await this.repoManager.getCommitLog(workDir);
+    } catch {
+      // getCommitLog may fail if on main with no diff — check if branch has any commits at all
+      console.warn('[Implement] Could not get commit log — checking branch status');
+    }
+
     if (!commitLog.trim()) {
-      console.warn('[Implement] No commits were made by Claude — nothing to push');
-      return {
-        branchName,
-        prUrl: '',
-        workDir,
-        costUsd,
-        durationMs: Date.now() - startTime,
-      };
+      console.warn('[Implement] No commits on branch — checking if already pushed to remote');
+      // Try to push anyway in case commits exist from a previous run
+      try {
+        await this.repoManager.push(workDir, branchName);
+        commitLog = 'Commits from previous implementation run';
+        console.log('[Implement] Pushed existing branch to remote');
+      } catch {
+        console.warn('[Implement] No commits to push — pipeline will continue without PR');
+        return {
+          branchName,
+          prUrl: '',
+          workDir,
+          costUsd,
+          durationMs: Date.now() - startTime,
+        };
+      }
     }
 
     // Push and create PR
@@ -117,7 +132,7 @@ export class ImplementStage {
       console.warn(`[Implement] PR creation failed: ${(err as Error).message}`);
       // PR may already exist — try to find it
       try {
-        prUrl = await this.repoManager.getPrUrl(workDir, branchName);
+        prUrl = (await this.repoManager.getPrUrl(workDir, branchName)) ?? '';
       } catch { /* ignore */ }
     }
 
