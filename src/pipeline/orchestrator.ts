@@ -140,8 +140,8 @@ export class PipelineOrchestrator {
         console.log(`[Orchestrator] Released repo lock for ${event.repoUrl} (card ${event.cardId})`);
       }
 
-      // Cleanup /tmp repos to prevent disk overflow
-      if (pipelineContext?.workDir) {
+      // Cleanup /tmp repos only after QA (last stage) — earlier stages pass workDir to next stage
+      if (event.stage === PipelineStage.QA && pipelineContext?.workDir) {
         try {
           const { rm } = await import('fs/promises');
           await rm(pipelineContext.workDir, { recursive: true, force: true });
