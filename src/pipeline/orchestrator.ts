@@ -87,8 +87,13 @@ export class PipelineOrchestrator {
     const onEvent = this.broadcaster?.createStreamHandler(event.cardId, cardName, stageName);
 
     try {
-      // Timeout: max 20 minutes per stage (prevent infinite loops)
-      const STAGE_TIMEOUT_MS = 20 * 60 * 1000;
+      // Timeout per stage: implement gets more time (complex tasks), review/qa are shorter
+      const STAGE_TIMEOUTS: Record<string, number> = {
+        implement: 40 * 60 * 1000, // 40 minutes
+        review: 15 * 60 * 1000,    // 15 minutes
+        qa: 20 * 60 * 1000,        // 20 minutes
+      };
+      const STAGE_TIMEOUT_MS = STAGE_TIMEOUTS[stageName] || 30 * 60 * 1000;
       const stagePromise = (async () => {
         switch (event.stage) {
           case PipelineStage.IMPLEMENT:
