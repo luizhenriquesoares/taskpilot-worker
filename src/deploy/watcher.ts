@@ -4,6 +4,7 @@ import type { BoardConfig } from '../config/types.js';
 
 const POLL_INTERVAL_MS = 30_000; // 30 seconds
 const PENDING_FILE = '/tmp/trello-pilot-pending-deploys.json';
+const MAX_WAIT_MS = 15 * 60_000; // 15 minutes — if deploy doesn't complete, move to Done anyway
 
 interface PendingDeploy {
   cardId: string;
@@ -81,14 +82,30 @@ export class DeployWatcher {
       for (const cardId of cardIds) {
         const entry = pending[cardId];
         try {
+          // Timeout: if waiting too long, move to Done anyway
+          const waitMs = Date.now() - new Date(entry.mergedAt).getTime();
+          if (waitMs > MAX_WAIT_MS) {
+            console.log(`[DeployWatcher] Timeout (${Math.round(waitMs / 60_000)}min) for "${entry.projectName}" — moving to Done`);
+            await this.completeCard(cardId, entry.totalCostUsd, entry.branchName, entry.repoUrl, false);
+            delete pending[cardId];
+            this.savePending(pending);
+            continue;
+          }
+
           const deploy = await this.getLatestDeploy(entry.railwayProjectId);
-          if (!deploy) continue;
+          if (!deploy) {
+            console.log(`[DeployWatcher] No deployment found for "${entry.projectName}" (project: ${entry.railwayProjectId})`);
+            continue;
+          }
 
           const deployTime = new Date(deploy.createdAt).getTime();
           const mergeTime = new Date(entry.mergedAt).getTime();
+
+          console.log(`[DeployWatcher] "${entry.projectName}" deploy status: ${deploy.status} (created: ${deploy.createdAt})`);
+
           if (deployTime < mergeTime) continue; // deploy from before merge
 
-          if (deploy.status === 'SUCCESS') {
+          if (deploy.status === 'SUCCESS' || deploy.status === 'COMPLETED') {
             console.log(`[DeployWatcher] Deploy SUCCESS for "${entry.projectName}"`);
             await this.completeCard(cardId, entry.totalCostUsd, entry.branchName, entry.repoUrl, true);
             delete pending[cardId];
@@ -103,7 +120,7 @@ export class DeployWatcher {
           }
           // BUILDING, DEPLOYING → keep waiting
         } catch (err) {
-          console.error(`[DeployWatcher] Error: ${(err as Error).message}`);
+          console.error(`[DeployWatcher] Error checking "${entry.projectName}": ${(err as Error).message}`);
         }
       }
     } finally {
