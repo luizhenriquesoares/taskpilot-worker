@@ -3,6 +3,7 @@ import * as path from 'path';
 import { runClaude } from './headless-runner.js';
 
 const KNOWLEDGE_FILE = '.trello-pilot-knowledge.json';
+const KNOWLEDGE_CACHE_DIR = '/tmp/trello-pilot-knowledge-cache';
 const KNOWLEDGE_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
 const KNOWLEDGE_BUDGET_USD = 0.15;
 
@@ -22,16 +23,40 @@ export class KnowledgeManager {
     return path.join(workspaceRoot, KNOWLEDGE_FILE);
   }
 
-  /** Load existing knowledge for a project */
-  load(workspaceRoot: string): ProjectKnowledge | null {
+  /** Get persistent cache path for a repo URL (survives /tmp clone cleanup) */
+  private getCachePath(repoUrl: string): string {
+    const hash = Buffer.from(repoUrl).toString('base64url').substring(0, 40);
+    return path.join(KNOWLEDGE_CACHE_DIR, `${hash}.json`);
+  }
+
+  /** Load existing knowledge — checks workDir first, then persistent cache */
+  load(workspaceRoot: string, repoUrl?: string): ProjectKnowledge | null {
+    // Try workDir first
     const filePath = this.getKnowledgePath(workspaceRoot);
+    const knowledge = this.loadFromFile(filePath);
+    if (knowledge) return knowledge;
+
+    // Try persistent cache (keyed by repo URL)
+    if (repoUrl) {
+      const cachePath = this.getCachePath(repoUrl);
+      const cached = this.loadFromFile(cachePath);
+      if (cached) {
+        // Copy to workDir for future stages
+        try { fs.writeFileSync(filePath, JSON.stringify(cached, null, 2) + '\n', 'utf-8'); } catch { /* */ }
+        return cached;
+      }
+    }
+
+    return null;
+  }
+
+  private loadFromFile(filePath: string): ProjectKnowledge | null {
     if (!fs.existsSync(filePath)) return null;
 
     try {
       const raw = fs.readFileSync(filePath, 'utf-8');
       const knowledge = JSON.parse(raw) as ProjectKnowledge;
 
-      // Check if knowledge is stale (older than 7 days)
       const age = Date.now() - new Date(knowledge.lastUpdated).getTime();
       const sevenDays = 7 * 24 * 60 * 60 * 1000;
       if (age > sevenDays) return null;
@@ -94,14 +119,25 @@ export class KnowledgeManager {
     }
   }
 
-  /** Save knowledge to file */
-  save(workspaceRoot: string, knowledge: ProjectKnowledge): void {
+  /** Save knowledge to workDir and persistent cache */
+  save(workspaceRoot: string, knowledge: ProjectKnowledge, repoUrl?: string): void {
+    const data = JSON.stringify(knowledge, null, 2) + '\n';
     const filePath = this.getKnowledgePath(workspaceRoot);
-    fs.writeFileSync(filePath, JSON.stringify(knowledge, null, 2) + '\n', 'utf-8');
+    fs.writeFileSync(filePath, data, 'utf-8');
+
+    // Also persist to cache dir (survives /tmp cleanup)
+    if (repoUrl) {
+      try {
+        if (!fs.existsSync(KNOWLEDGE_CACHE_DIR)) {
+          fs.mkdirSync(KNOWLEDGE_CACHE_DIR, { recursive: true });
+        }
+        fs.writeFileSync(this.getCachePath(repoUrl), data, 'utf-8');
+      } catch { /* non-blocking */ }
+    }
   }
 
   /** Generate knowledge by scanning the project via Claude CLI */
-  async generate(workspaceRoot: string, _claudePath: string): Promise<ProjectKnowledge | null> {
+  async generate(workspaceRoot: string, _claudePath: string, repoUrl?: string): Promise<ProjectKnowledge | null> {
     const prompt = `Analyze this project's codebase structure and output ONLY valid JSON (no markdown, no explanation, no code fences):
 {
   "projectName": "name of the project",
@@ -152,7 +188,7 @@ RULES:
       const knowledge = JSON.parse(jsonMatch[0]) as ProjectKnowledge;
       knowledge.lastUpdated = new Date().toISOString();
 
-      this.save(workspaceRoot, knowledge);
+      this.save(workspaceRoot, knowledge, repoUrl);
       return knowledge;
     } catch (err) {
       console.warn(`[Knowledge] Generation failed: ${(err as Error).message}`);

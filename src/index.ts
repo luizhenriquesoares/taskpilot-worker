@@ -149,25 +149,35 @@ async function main(): Promise<void> {
 async function pollLoop(consumer: SqsConsumer, orchestrator: PipelineOrchestrator): Promise<void> {
   while (!isShuttingDown) {
     try {
-      const message = await consumer.poll();
+      const messages = await consumer.pollBatch();
 
-      if (!message?.Body) {
+      if (messages.length === 0) {
         continue; // No messages, long-poll will wait ~20s
       }
 
-      console.log(`[Worker] Received SQS message: ${message.MessageId}`);
+      console.log(`[Worker] Received ${messages.length} SQS message(s)`);
 
-      const { event, pipelineContext } = parseSqsMessage(message.Body);
-      await orchestrator.processEvent(event, pipelineContext);
+      // Process all messages concurrently — repo locks handle same-repo serialization
+      const tasks = messages
+        .filter((m) => m.Body)
+        .map(async (message) => {
+          try {
+            console.log(`[Worker] Processing SQS message: ${message.MessageId}`);
+            const { event, pipelineContext } = parseSqsMessage(message.Body!);
+            await orchestrator.processEvent(event, pipelineContext);
 
-      // Delete message after successful processing
-      if (message.ReceiptHandle) {
-        await consumer.deleteMessage(message.ReceiptHandle);
-        console.log(`[Worker] Deleted SQS message: ${message.MessageId}`);
-      }
+            if (message.ReceiptHandle) {
+              await consumer.deleteMessage(message.ReceiptHandle);
+              console.log(`[Worker] Deleted SQS message: ${message.MessageId}`);
+            }
+          } catch (err) {
+            console.error(`[Worker] Message ${message.MessageId} failed: ${(err as Error).message}`);
+          }
+        });
+
+      await Promise.allSettled(tasks);
     } catch (err) {
       console.error(`[Worker] Poll loop error: ${(err as Error).message}`);
-      // Wait before retrying to avoid tight error loops
       await delay(5000);
     }
   }

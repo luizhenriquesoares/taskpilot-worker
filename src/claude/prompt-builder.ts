@@ -1,8 +1,14 @@
 import { TrelloCard } from '../trello/types.js';
 
+export interface AttachedImage {
+  name: string;
+  filePath: string;
+}
+
 export class PromptBuilder {
   private rules: string[] = [];
   private knowledgeContext: string = '';
+  private imagePaths: AttachedImage[] = [];
 
   setRules(rules: string[]): void {
     this.rules = rules;
@@ -10,6 +16,10 @@ export class PromptBuilder {
 
   setKnowledge(knowledgeContext: string): void {
     this.knowledgeContext = knowledgeContext;
+  }
+
+  setImagePaths(images: AttachedImage[]): void {
+    this.imagePaths = images;
   }
 
   build(card: TrelloCard): string {
@@ -53,9 +63,24 @@ export class PromptBuilder {
       }
     }
 
-    if (card.attachments?.length) {
+    // Image attachments — Claude can read these via Read tool
+    if (this.imagePaths.length > 0) {
+      sections.push('## Image Attachments (Visual Context)');
+      sections.push('Use the Read tool to view each image — they provide visual context (mockups, screenshots, diagrams):');
+      for (const img of this.imagePaths) {
+        sections.push(`- \`${img.filePath}\` — ${img.name}`);
+      }
+      sections.push('');
+    }
+
+    // Non-image attachments as links
+    const nonImageAtts = card.attachments?.filter((att) => {
+      const isImg = /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(att.name);
+      return !isImg;
+    });
+    if (nonImageAtts?.length) {
       sections.push('## References');
-      for (const att of card.attachments) {
+      for (const att of nonImageAtts) {
         sections.push(`- [${att.name}](${att.url})`);
       }
       sections.push('');
@@ -219,9 +244,24 @@ export class PromptBuilder {
       }
     }
 
-    if (card.attachments?.length) {
+    // Image attachments — Claude can read these via Read tool
+    if (this.imagePaths.length > 0) {
+      sections.push('## Image Attachments (Visual Context)');
+      sections.push('Use the Read tool to view each image — they provide visual context (mockups, screenshots, diagrams):');
+      for (const img of this.imagePaths) {
+        sections.push(`- \`${img.filePath}\` — ${img.name}`);
+      }
+      sections.push('');
+    }
+
+    // Non-image attachments as links
+    const nonImageAtts = card.attachments?.filter((att) => {
+      const isImg = /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(att.name);
+      return !isImg;
+    });
+    if (nonImageAtts?.length) {
       sections.push('## References');
-      for (const att of card.attachments) {
+      for (const att of nonImageAtts) {
         sections.push(`- [${att.name}](${att.url})`);
       }
       sections.push('');

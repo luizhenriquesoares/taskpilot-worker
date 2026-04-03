@@ -6,8 +6,8 @@ import {
 } from '@aws-sdk/client-sqs';
 
 const WAIT_TIME_SECONDS = 20;
-const MAX_MESSAGES = 1;
-const VISIBILITY_TIMEOUT_SECONDS = 900; // 15 minutes — long enough for a pipeline stage
+const MAX_MESSAGES = 5;
+const VISIBILITY_TIMEOUT_SECONDS = 2700; // 45 minutes — covers full stage + buffer
 
 export class SqsConsumer {
   private readonly client: SQSClient;
@@ -19,7 +19,7 @@ export class SqsConsumer {
     this.client = new SQSClient({ region });
   }
 
-  async poll(): Promise<Message | null> {
+  async pollBatch(): Promise<Message[]> {
     const command = new ReceiveMessageCommand({
       QueueUrl: this.queueUrl,
       WaitTimeSeconds: WAIT_TIME_SECONDS,
@@ -29,12 +29,7 @@ export class SqsConsumer {
     });
 
     const response = await this.client.send(command);
-
-    if (!response.Messages || response.Messages.length === 0) {
-      return null;
-    }
-
-    return response.Messages[0];
+    return response.Messages || [];
   }
 
   async deleteMessage(receiptHandle: string): Promise<void> {

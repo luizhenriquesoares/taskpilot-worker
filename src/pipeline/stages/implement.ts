@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { RepoManager } from '../../git/repo-manager.js';
 import { TrelloApi } from '../../trello/api.js';
 import { PromptBuilder } from '../../claude/prompt-builder.js';
@@ -8,6 +10,8 @@ import type { WorkerEvent } from '../../shared/types/worker-event.js';
 import type { TrelloCard } from '../../trello/types.js';
 
 const WORK_DIR_PREFIX = '/tmp/trello-pilot';
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp)$/i;
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
 
 export interface ImplementResult {
   branchName: string;
@@ -52,13 +56,20 @@ export class ImplementStage {
     await this.repoManager.createBranch(workDir, branchName);
 
     // Load or generate project knowledge
-    await this.ensureKnowledge(workDir);
+    await this.ensureKnowledge(workDir, repoUrl);
 
     // Run complexity estimation (optional, non-blocking)
     const estimate = await this.estimateComplexity(card, workDir);
     if (estimate) {
       console.log(`[Implement] Complexity: ${estimate.size} (~${estimate.estimatedMinutes}min)`);
       await this.commenter.postComplexityEstimate(card.id, estimate);
+    }
+
+    // Download image attachments for visual context
+    const imagePaths = await this.downloadImageAttachments(card, workDir);
+    if (imagePaths.length > 0) {
+      this.promptBuilder.setImagePaths(imagePaths);
+      console.log(`[Implement] ${imagePaths.length} image(s) attached for context`);
     }
 
     // Build prompt — use retry prompt if this is a reopened task
@@ -165,7 +176,7 @@ export class ImplementStage {
     return card;
   }
 
-  private async ensureKnowledge(workDir: string): Promise<void> {
+  private async ensureKnowledge(workDir: string, repoUrl?: string): Promise<void> {
     // Priority 1: Use existing CLAUDE.md from the repo (richest context, zero cost)
     const claudeMdContext = this.knowledgeMgr.formatClaudeMdForPrompt(workDir);
     if (claudeMdContext) {
@@ -174,8 +185,8 @@ export class ImplementStage {
       return;
     }
 
-    // Priority 2: Load cached knowledge from previous generation
-    let knowledge = this.knowledgeMgr.load(workDir);
+    // Priority 2: Load cached knowledge (workDir or persistent cache by repo URL)
+    let knowledge = this.knowledgeMgr.load(workDir, repoUrl);
     if (knowledge) {
       console.log(`[Implement] Knowledge loaded (${knowledge.techStack.join(', ')})`);
       this.promptBuilder.setKnowledge(this.knowledgeMgr.formatForPrompt(knowledge));
@@ -184,13 +195,44 @@ export class ImplementStage {
 
     // Priority 3: Generate knowledge via Claude CLI
     console.log('[Implement] Generating project knowledge (first run)...');
-    knowledge = await this.knowledgeMgr.generate(workDir, 'claude');
+    knowledge = await this.knowledgeMgr.generate(workDir, 'claude', repoUrl);
     if (knowledge) {
       console.log(`[Implement] Generated: ${knowledge.architecture}`);
       this.promptBuilder.setKnowledge(this.knowledgeMgr.formatForPrompt(knowledge));
     } else {
       console.log('[Implement] Could not generate knowledge — will scan normally');
     }
+  }
+
+  private async downloadImageAttachments(card: TrelloCard, workDir: string): Promise<{ name: string; filePath: string }[]> {
+    const imageAtts = card.attachments?.filter((att) => {
+      return IMAGE_EXTENSIONS.test(att.name);
+    });
+    if (!imageAtts?.length) return [];
+
+    const imgDir = path.join(workDir, '.trello-pilot-images');
+    if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
+
+    const downloaded: { name: string; filePath: string }[] = [];
+
+    for (const att of imageAtts) {
+      try {
+        const response = await fetch(att.url, { signal: AbortSignal.timeout(30_000) });
+        if (!response.ok) continue;
+
+        const buffer = Buffer.from(await response.arrayBuffer());
+        if (buffer.length > MAX_IMAGE_SIZE) continue;
+
+        const safeName = att.name.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 100);
+        const filePath = path.join(imgDir, `${att.id}_${safeName}`);
+        fs.writeFileSync(filePath, buffer);
+        downloaded.push({ name: att.name, filePath });
+      } catch {
+        // Non-blocking — skip failed downloads
+      }
+    }
+
+    return downloaded;
   }
 
   private async estimateComplexity(

@@ -1,6 +1,7 @@
 import { RepoManager } from '../../git/repo-manager.js';
 import { TrelloApi } from '../../trello/api.js';
 import { PromptBuilder } from '../../claude/prompt-builder.js';
+import { KnowledgeManager } from '../../claude/knowledge.js';
 import { runClaude } from '../../claude/headless-runner.js';
 import { TrelloCommenter } from '../../notifications/trello-commenter.js';
 import type { WorkerEvent } from '../../shared/types/worker-event.js';
@@ -19,6 +20,7 @@ export interface QaContext {
 
 export class QaStage {
   private readonly promptBuilder: PromptBuilder;
+  private readonly knowledgeMgr: KnowledgeManager;
 
   constructor(
     private readonly repoManager: RepoManager,
@@ -26,6 +28,7 @@ export class QaStage {
     private readonly commenter: TrelloCommenter,
   ) {
     this.promptBuilder = new PromptBuilder();
+    this.knowledgeMgr = new KnowledgeManager();
   }
 
   async execute(event: WorkerEvent, context: QaContext): Promise<QaResult> {
@@ -51,6 +54,12 @@ export class QaStage {
 
     // Get PR URL
     const prUrl = context.prUrl || (await this.repoManager.getPrUrl(workDir, branchName)) || '';
+
+    // Load project knowledge from CLAUDE.md if available
+    const claudeMdContext = this.knowledgeMgr.formatClaudeMdForPrompt(workDir);
+    if (claudeMdContext) {
+      this.promptBuilder.setKnowledge(claudeMdContext);
+    }
 
     // Comment on Trello: starting QA
     await this.commenter.postQaStarted(card.id, branchName, prUrl, event.projectName);

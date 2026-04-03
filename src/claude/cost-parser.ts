@@ -73,27 +73,29 @@ export function parseFullCostData(rawOutput: string): ClaudeCostData | null {
 }
 
 function extractCostFromParsed(parsed: Record<string, unknown>): number | null {
-  // Direct cost field
-  if (typeof parsed.cost_usd === 'number') {
-    return parsed.cost_usd;
-  }
+  // Direct cost fields (Claude stream-json uses total_cost_usd)
+  if (typeof parsed.total_cost_usd === 'number') return parsed.total_cost_usd;
+  if (typeof parsed.cost_usd === 'number') return parsed.cost_usd;
 
   // Nested under usage
   const usage = parsed.usage as Record<string, unknown> | undefined;
-  if (usage && typeof usage.cost_usd === 'number') {
-    return usage.cost_usd;
+  if (usage) {
+    if (typeof usage.total_cost_usd === 'number') return usage.total_cost_usd;
+    if (typeof usage.cost_usd === 'number') return usage.cost_usd;
   }
 
   // Nested under result
   const result = parsed.result as Record<string, unknown> | undefined;
-  if (result && typeof result.cost_usd === 'number') {
-    return result.cost_usd;
+  if (result) {
+    if (typeof result.total_cost_usd === 'number') return result.total_cost_usd;
+    if (typeof result.cost_usd === 'number') return result.cost_usd;
   }
 
   // Nested under result.usage
   const resultUsage = result?.usage as Record<string, unknown> | undefined;
-  if (resultUsage && typeof resultUsage.cost_usd === 'number') {
-    return resultUsage.cost_usd;
+  if (resultUsage) {
+    if (typeof resultUsage.total_cost_usd === 'number') return resultUsage.total_cost_usd;
+    if (typeof resultUsage.cost_usd === 'number') return resultUsage.cost_usd;
   }
 
   return null;

@@ -119,7 +119,13 @@ export class WebhookHandler {
         return;
       }
 
-      console.log(`[Webhook] Action ${actionType} not handled, ignoring`);
+      // Only log unexpected actions (skip common noise like commentCard, checkItem updates)
+      const silentActions = ['commentCard', 'updateCheckItemStateOnCard', 'updateCheckItem',
+        'addAttachmentToCard', 'deleteComment', 'createCheckItem', 'addChecklistToCard',
+        'removeChecklistFromCard', 'deleteAttachmentFromCard'];
+      if (!silentActions.includes(actionType)) {
+        console.log(`[Webhook] Action ${actionType} not handled, ignoring`);
+      }
     } catch (err) {
       console.error(`[Webhook] Error processing webhook: ${(err as Error).message}`);
     }
