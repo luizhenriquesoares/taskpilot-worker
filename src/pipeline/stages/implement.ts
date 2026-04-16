@@ -5,6 +5,7 @@ import { TrelloApi } from '../../trello/api.js';
 import { PromptBuilder } from '../../claude/prompt-builder.js';
 import { runClaude, type ClaudeStreamEvent } from '../../claude/headless-runner.js';
 import { KnowledgeManager } from '../../claude/knowledge.js';
+import { WorkspaceBootstrapper } from '../../claude/workspace-bootstrapper.js';
 import { TrelloCommenter } from '../../notifications/trello-commenter.js';
 import type { WorkerEvent } from '../../shared/types/worker-event.js';
 import type { TrelloCard } from '../../trello/types.js';
@@ -25,6 +26,7 @@ export interface ImplementResult {
 export class ImplementStage {
   private readonly promptBuilder: PromptBuilder;
   private readonly knowledgeMgr: KnowledgeManager;
+  private readonly workspaceBootstrapper: WorkspaceBootstrapper;
 
   constructor(
     private readonly repoManager: RepoManager,
@@ -33,10 +35,12 @@ export class ImplementStage {
   ) {
     this.promptBuilder = new PromptBuilder();
     this.knowledgeMgr = new KnowledgeManager();
+    this.workspaceBootstrapper = new WorkspaceBootstrapper();
   }
 
   async execute(event: WorkerEvent, onEvent?: (e: ClaudeStreamEvent) => void): Promise<ImplementResult> {
     const startTime = Date.now();
+    this.promptBuilder.reset();
 
     const card = await this.fetchFullCard(event.cardId);
     const { repoUrl, baseBranch, branchPrefix, rules } = event;
@@ -57,6 +61,16 @@ export class ImplementStage {
 
     // Load or generate project knowledge
     await this.ensureKnowledge(workDir, repoUrl);
+
+    const workspace = await this.workspaceBootstrapper.prepare(workDir);
+    this.promptBuilder.setWorkspaceContext(workspace.promptContext);
+    if (onEvent) {
+      onEvent({
+        type: 'text',
+        data: `[bootstrap] workspace preparado com ${workspace.projects.length} diretório(s) de projeto mapeados`,
+        timestamp: new Date().toISOString(),
+      });
+    }
 
     // Download image attachments for visual context
     const imagePaths = await this.downloadImageAttachments(card, workDir);
@@ -131,15 +145,29 @@ export class ImplementStage {
 
     let prUrl = '';
     try {
-      const prInfo = await this.repoManager.createPr(workDir, card.name, prBody, baseBranch);
-      prUrl = prInfo.url;
-      console.log(`[Implement] PR created: ${prUrl}`);
-    } catch (err) {
-      console.warn(`[Implement] PR creation failed: ${(err as Error).message}`);
-      // PR may already exist — try to find it
+      prUrl = (await this.repoManager.getPrUrl(workDir, branchName)) ?? '';
+    } catch { /* ignore */ }
+
+    if (prUrl) {
+      console.log(`[Implement] Reusing existing PR: ${prUrl}`);
+    } else {
       try {
-        prUrl = (await this.repoManager.getPrUrl(workDir, branchName)) ?? '';
-      } catch { /* ignore */ }
+        const prInfo = await this.repoManager.createPr(
+          workDir,
+          card.name,
+          prBody,
+          baseBranch,
+          branchName,
+        );
+        prUrl = prInfo.url;
+        console.log(`[Implement] PR created: ${prUrl}`);
+      } catch (err) {
+        console.warn(`[Implement] PR creation failed: ${(err as Error).message}`);
+        // PR may already exist — try to find it
+        try {
+          prUrl = (await this.repoManager.getPrUrl(workDir, branchName)) ?? '';
+        } catch { /* ignore */ }
+      }
     }
 
     // Comment on Trello and move card
@@ -163,8 +191,10 @@ export class ImplementStage {
   }
 
   private async fetchFullCard(cardId: string): Promise<TrelloCard> {
-    const card = await this.trelloApi.getCard(cardId);
-    const checklists = await this.trelloApi.getCardChecklists(cardId);
+    const [card, checklists] = await Promise.all([
+      this.trelloApi.getCard(cardId),
+      this.trelloApi.getCardChecklists(cardId),
+    ]);
     card.checklists = checklists;
     return card;
   }

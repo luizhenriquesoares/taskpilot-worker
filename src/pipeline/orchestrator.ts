@@ -10,7 +10,7 @@ import { StreamBroadcaster } from '../server/websocket.js';
 import { DeployWatcher } from '../deploy/watcher.js';
 import { runClaude } from '../claude/headless-runner.js';
 import { PipelineStage } from '../shared/types/pipeline-stage.js';
-import type { WorkerEvent } from '../shared/types/worker-event.js';
+import { validateWorkerEvent, type WorkerEvent } from '../shared/types/worker-event.js';
 import type { BoardConfig } from '../config/types.js';
 
 const NEXT_STAGE_MAP: Record<PipelineStage, PipelineStage | null> = {
@@ -45,6 +45,14 @@ export class PipelineOrchestrator {
   ) {}
 
   async processEvent(event: WorkerEvent, pipelineContext?: PipelineContext): Promise<void> {
+    const validationErrors = validateWorkerEvent(event);
+    if (validationErrors.length > 0) {
+      console.warn(
+        `[Orchestrator] Ignoring malformed event: ${validationErrors.join('; ')}`,
+      );
+      return;
+    }
+
     // Repo lock: prevent concurrent tasks on the same repository
     const lockHolder = this.repoLocks.get(event.repoUrl);
     if (lockHolder && lockHolder !== event.cardId) {

@@ -19,6 +19,7 @@ import { JobTracker } from './tracking/job-tracker.js';
 import { LogBuffer } from './tracking/log-buffer.js';
 import { StreamBroadcaster } from './server/websocket.js';
 import { DeployWatcher } from './deploy/watcher.js';
+import { validateWorkerEvent } from './shared/types/worker-event.js';
 
 // --- Globals ---
 
@@ -194,6 +195,19 @@ async function pollLoop(consumer: SqsConsumer, orchestrator: PipelineOrchestrato
           try {
             console.log(`[Worker] Processing SQS message: ${message.MessageId}`);
             const { event, pipelineContext } = parseSqsMessage(message.Body!);
+
+            const validationErrors = validateWorkerEvent(event);
+            if (validationErrors.length > 0) {
+              console.warn(
+                `[Worker] Dropping malformed SQS message ${message.MessageId}: ${validationErrors.join('; ')}`,
+              );
+              if (message.ReceiptHandle) {
+                await consumer.deleteMessage(message.ReceiptHandle);
+                console.log(`[Worker] Deleted malformed SQS message: ${message.MessageId}`);
+              }
+              return;
+            }
+
             await orchestrator.processEvent(event, pipelineContext);
 
             if (message.ReceiptHandle) {

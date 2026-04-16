@@ -8,7 +8,15 @@ export interface AttachedImage {
 export class PromptBuilder {
   private rules: string[] = [];
   private knowledgeContext: string = '';
+  private workspaceContext: string = '';
   private imagePaths: AttachedImage[] = [];
+
+  reset(): void {
+    this.rules = [];
+    this.knowledgeContext = '';
+    this.workspaceContext = '';
+    this.imagePaths = [];
+  }
 
   setRules(rules: string[]): void {
     this.rules = rules;
@@ -16,6 +24,10 @@ export class PromptBuilder {
 
   setKnowledge(knowledgeContext: string): void {
     this.knowledgeContext = knowledgeContext;
+  }
+
+  setWorkspaceContext(workspaceContext: string): void {
+    this.workspaceContext = workspaceContext;
   }
 
   setImagePaths(images: AttachedImage[]): void {
@@ -31,6 +43,11 @@ export class PromptBuilder {
     // Inject project knowledge if available
     if (this.knowledgeContext) {
       sections.push(this.knowledgeContext);
+    }
+
+    if (this.workspaceContext) {
+      sections.push(this.workspaceContext);
+      sections.push('');
     }
 
     if (card.desc) {
@@ -126,7 +143,8 @@ export class PromptBuilder {
       sections.push('- If config/env vars are missing, document what needs to be added');
       sections.push('');
       sections.push('### Step 4 — Validate');
-      sections.push('- Run `npx tsc --noEmit` to ensure no type errors');
+      sections.push('- Use the Workspace Map section to run the correct typecheck command in each relevant directory');
+      sections.push('- Do NOT improvise repeated installs of `typescript`, `vitest`, or other dev tools');
       sections.push('- Verify the fix addresses the exact scenario described in the bug report');
       sections.push('- Check that you haven\'t broken adjacent functionality');
       sections.push('');
@@ -181,7 +199,8 @@ export class PromptBuilder {
       sections.push('  - Log when the trigger condition is met (e.g., "exit intent: user leaving")');
       sections.push('  - Log the state value you depend on (e.g., "chatState:", chatState)');
       sections.push('  - Log inside conditional blocks to confirm they run');
-      sections.push('- Run `npx tsc --noEmit` to ensure no type errors');
+      sections.push('- Use the Workspace Map section to run the correct typecheck command in each relevant directory');
+      sections.push('- Do NOT run `npm install`, `npm ci`, or install single packages repeatedly unless the Workspace Map explicitly says bootstrap failed');
       sections.push('- MENTALLY SIMULATE the user journey step by step:');
       sections.push('  1. User opens page → which components mount?');
       sections.push('  2. User interacts → what state changes?');
@@ -218,6 +237,11 @@ export class PromptBuilder {
     // Inject project knowledge if available
     if (this.knowledgeContext) {
       sections.push(this.knowledgeContext);
+    }
+
+    if (this.workspaceContext) {
+      sections.push(this.workspaceContext);
+      sections.push('');
     }
 
     if (card.desc) {
@@ -304,7 +328,8 @@ export class PromptBuilder {
     sections.push('- Do NOT repeat the same approach if it already failed');
     sections.push('');
     sections.push('### Step 4 — Validate thoroughly');
-    sections.push('- Run `npx tsc --noEmit` to ensure no type errors');
+    sections.push('- Use the Workspace Map section to run the correct typecheck command in each relevant directory');
+    sections.push('- Do NOT run ad hoc installs of `typescript`, `vitest`, or other tooling unless the Workspace Map explicitly says bootstrap failed');
     sections.push('- Mentally simulate the exact scenario described in the feedback');
     sections.push('- Verify your fix addresses every point in the stakeholder feedback');
     sections.push('- Check that you have not broken adjacent functionality');
@@ -369,12 +394,18 @@ export class PromptBuilder {
       sections.push('');
     }
 
+    if (this.workspaceContext) {
+      sections.push(this.workspaceContext);
+      sections.push('');
+    }
+
     sections.push('## Review Instructions');
     sections.push(`You are reviewing the code changes on branch \`${branchName}\`.`);
     sections.push('');
     sections.push('1. Run `git diff main...HEAD` to see ALL changes made in this branch');
     sections.push('2. Read every changed file carefully');
     sections.push('3. Analyze the changes against the criteria below:');
+    sections.push('4. Use the Workspace Map section for any typecheck/test commands — do NOT keep probing/installing tools in a loop');
     sections.push('');
     sections.push('### Execution Path Verification (CRITICAL — check FIRST)');
     sections.push('- For EVERY new function/component/hook added, trace the rendering chain:');
@@ -479,6 +510,11 @@ export class PromptBuilder {
       }
     }
 
+    if (this.workspaceContext) {
+      sections.push(this.workspaceContext);
+      sections.push('');
+    }
+
     sections.push('## QA Instructions');
     sections.push(`You are running QA on branch \`${branchName}\`.`);
     sections.push('');
@@ -496,8 +532,8 @@ export class PromptBuilder {
 
     // Step 2 — Type Check
     sections.push('### Step 2 — Type Check');
-    sections.push('Run `npx tsc --noEmit` in each project directory (backend, frontend, or root).');
-    sections.push('- If the project has a `tsconfig.json`, run the type check');
+    sections.push('Use the Workspace Map section and run the listed typecheck command only in directories that have one.');
+    sections.push('- Do NOT keep probing for `tsc` or repeatedly install `typescript`');
     sections.push('- Fix any type errors before proceeding');
     sections.push('- If no TypeScript config exists, skip this step');
     sections.push('');
@@ -505,7 +541,7 @@ export class PromptBuilder {
     // Step 3 — Detect Test Framework
     sections.push('### Step 3 — Detect Test Framework');
     sections.push('Check if the project has a test framework configured:');
-    sections.push('1. Read `package.json` (root, backend/, frontend/) and look for:');
+    sections.push('1. Start from the Workspace Map and then read `package.json` (root, backend/, frontend/) as needed.');
     sections.push('   - `scripts.test` — does it exist and is it NOT `echo "Error: no test specified" && exit 1`?');
     sections.push('   - `devDependencies` or `dependencies` containing: `jest`, `vitest`, `mocha`, `@testing-library/*`');
     sections.push('2. Check for config files: `jest.config.*`, `vitest.config.*`, `.mocharc.*`');
@@ -520,7 +556,7 @@ export class PromptBuilder {
     // Step 4 — Run Existing Tests
     sections.push('### Step 4 — Run Existing Tests');
     sections.push('If `HAS_TEST_FRAMEWORK` is true AND `HAS_EXISTING_TESTS` is true:');
-    sections.push('1. Run the test suite: `TEST_COMMAND` (e.g., `npm test`, `npx jest --passWithNoTests`, `npx vitest run`)');
+    sections.push('1. Run the test suite using the command from the Workspace Map or the detected `TEST_COMMAND`');
     sections.push('2. If tests fail:');
     sections.push('   - Check if the failures are caused by the changes in this branch');
     sections.push('   - If yes → fix the code and commit: "fix: QA test fixes for <task-name>"');
@@ -619,18 +655,17 @@ export class PromptBuilder {
     sections.push('### Step 9 — Final Test Run');
     sections.push('If `HAS_TEST_FRAMEWORK` is true:');
     sections.push('1. Run the FULL test suite one final time: `TEST_COMMAND`');
-    sections.push('2. Run type check again: `npx tsc --noEmit`');
+    sections.push('2. Run the Workspace Map typecheck commands again');
     sections.push('3. ALL tests must pass and type check must be clean');
     sections.push('4. If anything fails, fix and re-run until green');
     sections.push('');
 
-    // Step 10 — Merge or Report
+    // Step 10 — Report result to orchestrator
     sections.push('### Step 10 — If ALL checks pass');
-    sections.push('1. Switch to main: `git checkout main && git pull origin main`');
-    sections.push(`2. Merge the branch: \`git merge ${branchName}\``);
-    sections.push('3. Push to remote: `git push origin main`');
-    sections.push(`4. Delete the feature branch: \`git branch -d ${branchName}\``);
-    sections.push('5. Report: "QA PASSED — merged to main and pushed"');
+    sections.push('1. Leave the branch as-is after tests/checks are green');
+    sections.push('2. Do NOT merge to main yourself');
+    sections.push('3. Do NOT delete the feature branch yourself');
+    sections.push('4. Report: "QA PASSED — ready for orchestrator merge"');
     sections.push('');
     sections.push('### Step 10 — If ANY check fails');
     sections.push('1. Fix the issues directly in the code');
@@ -640,7 +675,7 @@ export class PromptBuilder {
     sections.push('   - Only run these if the tools are installed (the || true prevents failure if not installed)');
     sections.push('3. Commit with message: "fix: QA fixes for <task-name>"');
     sections.push('3. Re-run the failing checks');
-    sections.push('4. If all pass now, proceed with merge (Step 10 above)');
+    sections.push('4. If all pass now, stop and report "QA PASSED — ready for orchestrator merge"');
     sections.push('5. If still failing, report the failures and do NOT merge');
     sections.push('');
 

@@ -38,3 +38,28 @@ export interface WorkerEvent {
   /** Stakeholder feedback from Trello comments explaining why the previous implementation failed */
   retryFeedback?: string;
 }
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+export function validateWorkerEvent(event: unknown): string[] {
+  if (!event || typeof event !== 'object') {
+    return ['event is not an object'];
+  }
+
+  const candidate = event as Partial<WorkerEvent>;
+  const errors: string[] = [];
+
+  if (!isNonEmptyString(candidate.cardId)) errors.push('cardId is missing');
+  if (!isNonEmptyString(candidate.repoUrl)) errors.push('repoUrl is missing');
+  if (!isNonEmptyString(candidate.baseBranch)) errors.push('baseBranch is missing');
+  if (!isNonEmptyString(candidate.branchPrefix)) errors.push('branchPrefix is missing');
+  if (!isNonEmptyString(candidate.originListId)) errors.push('originListId is missing');
+
+  if (!Object.values(PipelineStage).includes(candidate.stage as PipelineStage)) {
+    errors.push(`stage is invalid (${String(candidate.stage)})`);
+  }
+
+  return errors;
+}

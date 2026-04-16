@@ -3,6 +3,7 @@ import { TrelloApi } from '../../trello/api.js';
 import { PromptBuilder } from '../../claude/prompt-builder.js';
 import { KnowledgeManager } from '../../claude/knowledge.js';
 import { runClaude } from '../../claude/headless-runner.js';
+import { WorkspaceBootstrapper } from '../../claude/workspace-bootstrapper.js';
 import { TrelloCommenter } from '../../notifications/trello-commenter.js';
 import type { WorkerEvent } from '../../shared/types/worker-event.js';
 
@@ -21,6 +22,7 @@ export interface QaContext {
 export class QaStage {
   private readonly promptBuilder: PromptBuilder;
   private readonly knowledgeMgr: KnowledgeManager;
+  private readonly workspaceBootstrapper: WorkspaceBootstrapper;
 
   constructor(
     private readonly repoManager: RepoManager,
@@ -29,13 +31,17 @@ export class QaStage {
   ) {
     this.promptBuilder = new PromptBuilder();
     this.knowledgeMgr = new KnowledgeManager();
+    this.workspaceBootstrapper = new WorkspaceBootstrapper();
   }
 
   async execute(event: WorkerEvent, context: QaContext): Promise<QaResult> {
     const startTime = Date.now();
+    this.promptBuilder.reset();
 
-    const card = await this.trelloApi.getCard(event.cardId);
-    const checklists = await this.trelloApi.getCardChecklists(event.cardId);
+    const [card, checklists] = await Promise.all([
+      this.trelloApi.getCard(event.cardId),
+      this.trelloApi.getCardChecklists(event.cardId),
+    ]);
     card.checklists = checklists;
 
     const { branchName, workDir } = context;
@@ -60,6 +66,9 @@ export class QaStage {
     if (claudeMdContext) {
       this.promptBuilder.setKnowledge(claudeMdContext);
     }
+
+    const workspace = await this.workspaceBootstrapper.prepare(workDir);
+    this.promptBuilder.setWorkspaceContext(workspace.promptContext);
 
     // Comment on Trello: starting QA
     await this.commenter.postQaStarted(card.id, branchName, prUrl, event.projectName);

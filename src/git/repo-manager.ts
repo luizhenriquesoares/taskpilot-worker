@@ -133,6 +133,7 @@ export class RepoManager {
     title: string,
     body: string,
     baseBranch: string,
+    headBranch: string,
   ): Promise<PrInfo> {
     const escapedTitle = title.replace(/"/g, '\\"');
     const escapedBody = body.replace(/"/g, '\\"');
@@ -142,6 +143,7 @@ export class RepoManager {
       `--title "${escapedTitle}"`,
       `--body "${escapedBody}"`,
       `--base ${baseBranch}`,
+      `--head ${headBranch}`,
     ].join(' '));
 
     if (result.exitCode !== 0) {
@@ -163,6 +165,8 @@ export class RepoManager {
     if (result.exitCode !== 0) {
       throw new Error(`gh pr merge failed: ${result.stderr || result.stdout}`);
     }
+
+    await this.deleteRemoteBranchIfExists(cwd, branchName);
   }
 
   async getPrUrl(cwd: string, branchName: string): Promise<string | null> {
@@ -183,5 +187,25 @@ export class RepoManager {
 
   async cleanup(dir: string): Promise<void> {
     await rm(dir, { recursive: true, force: true });
+  }
+
+  private async deleteRemoteBranchIfExists(cwd: string, branchName: string): Promise<void> {
+    try {
+      await this.execGit(cwd, ['push', 'origin', '--delete', branchName]);
+      console.log(`[Git] Deleted remote branch after merge: ${branchName}`);
+    } catch (err) {
+      const message = (err as Error).message || '';
+      const branchAlreadyGone = message.includes('remote ref does not exist')
+        || message.includes('unable to delete')
+        || message.includes('could not be found')
+        || message.includes('not found');
+
+      if (branchAlreadyGone) {
+        console.log(`[Git] Remote branch already absent after merge: ${branchName}`);
+        return;
+      }
+
+      console.warn(`[Git] Failed to delete remote branch ${branchName}: ${message}`);
+    }
   }
 }
