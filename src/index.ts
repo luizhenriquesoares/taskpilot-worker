@@ -13,6 +13,7 @@ import { TrelloApi } from './trello/api.js';
 import { TrelloCommenter } from './notifications/trello-commenter.js';
 import { SlackNotifier } from './notifications/slack.js';
 import { loadEnvConfig } from './config/env.js';
+import { loadSecretsFromSSM } from './config/secrets-loader.js';
 import { loadBoardConfig } from './config/board-config.js';
 import { JobTracker } from './tracking/job-tracker.js';
 import { LogBuffer } from './tracking/log-buffer.js';
@@ -51,6 +52,12 @@ async function main(): Promise<void> {
   logBuffer.install();
 
   console.log('[Worker] Starting trello-pilot-worker...');
+
+  // Load secrets from AWS SSM Parameter Store before reading env vars.
+  // Container boots with only SECRETS_SOURCE / SSM_PATH_PREFIX / AWS creds;
+  // everything else (Trello, GH, Claude, Slack, etc.) lives in SSM as
+  // SecureStrings encrypted with KMS.
+  await loadSecretsFromSSM();
 
   // Clean up leftover work dirs from crashed / killed previous runs
   await cleanupStaleTmpDirs();
