@@ -104,18 +104,37 @@ Status:
 
 ## P2 — UX / Frontend / Operação
 
-### 9. Front-end TaskPilot — seletor de projetos completo
+### 9. Front-end TaskPilot — seletor de projetos completo (Etapa 1 ✅, Etapa 2 pendente)
 - **Origem:** pedido do usuário
-- **Contexto:** hoje só os 5 projetos das listas Trello estão disponíveis. Os ~25 repos locais (audit-intelligence, b2b-portal, lambda-sqs-quotation, nexus-mileage-ai, etc.) não têm como receber tasks pelo TaskPilot.
-- **Pré-requisito de arquitetura:**
-  - Centralizar lista de projetos em um `projects.json` único, lido por `task-pilot/server.js` e `trello-pilot-worker/config.json` (ou via env `BOARD_CONFIG_JSON`).
-  - Cada entry: `{ name, repoUrl, baseBranch, branchPrefix, trelloListId, railwayProjectId? }`.
-  - Decidir destino Trello para repos sem lista própria: **labels** num board "Outros" (recomendado) ou criar lista por projeto (polui board).
-- **Ação no front (`task-pilot/client/src/App.tsx`):**
-  1. Adicionar combobox/dropdown **"Projeto destino"** acima da textarea, com search (são muitos itens) e default "auto-detectar".
-  2. Endpoint `/api/projects` retorna lista completa com metadata (ícone/cor opcional por projeto).
-  3. No preview pós-IA, permitir override do projeto detectado antes do "Criar no Trello".
-- **Aceite:** usuário cria task pra `audit-intelligence` direto pela UI e o card aparece no board com label/lista correto.
+
+**✅ Etapa 1 — UI catalog com 22 repos (concluída em a8e8f83 / 2c0XXXX):**
+- Centralizado em `task-pilot/projects.json` (22 repos da org `maismilhas-br`).
+- `/api/projects` retorna tudo com `mapped: bool`.
+- Dropdown na Nova page mostra:
+  - Grupo "Conectados ao Trello" (5 mapeados — funciona normalmente)
+  - Grupo "Setup pendente" (17 sem `trelloListId` — exibidos com ⚠ e bloqueados pra criar card)
+- Override do projeto disponível antes do `Processar com IA` e no preview pós-IA.
+- Botão "Criar no Trello" desabilita quando projeto selecionado é unmapped, com tooltip explicativo.
+
+**🚧 Etapa 2 — wirar os 17 unmapped no fluxo end-to-end (pendente):**
+1. **Manual no Trello:**
+   - Criar 1 lista "Implementar" no board (será o `triageListId`).
+   - Pegar o ID da lista e atualizar `triageListId` em `task-pilot/projects.json` E `trello-pilot-worker/config.json`.
+   - Criar 17 labels no board com EXATAMENTE o `name` de cada projeto unmapped (ex: "App B2B Mobile", "Quotation Lambda", etc.).
+2. **Backend `task-pilot/server.js`:**
+   - Em `/api/create-card`, quando `projectEntry.mapped === false`, criar card na `triageListId` + adicionar label com `projectEntry.name`.
+   - Remover bloqueio (HTTP 400 atual) pros unmapped depois que estiver wirado.
+3. **Worker `trello-pilot-worker/src/server/webhook-handler.ts`:**
+   - Novo `resolveProjectByLabel(boardConfig, card)`: se card chega na `triageListId`, ler labels do card e fazer match com `project.name` no `config.json`.
+   - Em `handleCardMoved`/`handleCardCreated`, tentar primeiro `resolveProjectForList` (lista mapeada); se não der match e for `triageListId`, tentar `resolveProjectByLabel`.
+4. **Worker `config.json`:**
+   - Adicionar os 17 entries com `repoUrl`, `baseBranch`, `branchPrefix` (sem `id`, com flag `labelName: name` ou só usar `name` mesmo).
+   - Adicionar `triageListId` no nível raiz.
+5. **Frontend:**
+   - Remover `disabled` do botão "Criar no Trello" pros unmapped.
+   - Mensagem do dropdown vira "Conectados via label" em vez de "Setup pendente".
+
+- **Aceite final:** usuário cria task pra "Quotation Orchestrator" pelo UI → card aparece na lista "Implementar" com label "Quotation Orchestrator" → worker pega via webhook → roda IMPLEMENT → REVIEW → QA → merge no repo `maismilhas.quotation.orchestrator` → card vai pra Done.
 
 ### 10. Redesign visual do TaskPilot App
 - **Origem:** pedido do usuário
