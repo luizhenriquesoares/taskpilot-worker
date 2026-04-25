@@ -247,10 +247,13 @@ export class RepoManager {
   private async getOwnerRepo(cwd: string): Promise<{ owner: string; repo: string } | null> {
     try {
       const url = await this.execGit(cwd, ['remote', 'get-url', 'origin']);
-      // Handle both https://github.com/owner/repo(.git) and git@github.com:owner/repo(.git)
-      const match = url.match(/github\.com[/:]([^/]+)\/([^/.\s]+)/);
+      // Handle both https://github.com/owner/repo(.git) and git@github.com:owner/repo(.git).
+      // Repo names can contain dots (e.g. maismilhas.b2b.portal), so we match
+      // until end-of-string and strip an optional trailing .git rather than
+      // excluding "." from the repo character class.
+      const match = url.match(/github\.com[/:]([^/]+)\/([^/\s]+?)(?:\.git)?$/);
       if (!match) return null;
-      return { owner: match[1], repo: match[2].replace(/\.git$/, '') };
+      return { owner: match[1], repo: match[2] };
     } catch {
       return null;
     }
