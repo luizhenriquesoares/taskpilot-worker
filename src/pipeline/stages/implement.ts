@@ -99,33 +99,28 @@ export class ImplementStage {
       console.warn(`[Implement] Claude exited with code ${runResult.exitCode}`);
     }
 
-    // Check if there are commits to push (new or from previous run)
+    // Check if there are commits to push
     let commitLog = '';
     try {
       commitLog = await this.repoManager.getCommitLog(workDir);
     } catch {
-      // getCommitLog may fail if on main with no diff — check if branch has any commits at all
-      console.warn('[Implement] Could not get commit log — checking branch status');
+      // getCommitLog may fail if on main with no diff — leave commitLog empty
+      console.warn('[Implement] Could not get commit log — assuming no commits');
     }
 
     if (!commitLog.trim()) {
-      console.warn('[Implement] No commits on branch — checking if already pushed to remote');
-      // Try to push anyway in case commits exist from a previous run
-      try {
-        await this.repoManager.push(workDir, branchName);
-        commitLog = 'Commits from previous implementation run';
-        console.log('[Implement] Pushed existing branch to remote');
-      } catch {
-        console.warn('[Implement] No commits to push — pipeline will continue without PR');
-        return {
-          branchName,
-          prUrl: '',
-          workDir,
-          costUsd,
-          durationMs: Date.now() - startTime,
-          commitSummary: '',
-        };
-      }
+      // Claude produced nothing on this branch. Don't push, don't create a PR,
+      // and don't pretend a previous run exists — the orchestrator's guard will
+      // halt the pipeline before REVIEW so a human can decide what to do.
+      console.warn('[Implement] No commits on branch — returning empty result; pipeline will halt before REVIEW');
+      return {
+        branchName,
+        prUrl: '',
+        workDir,
+        costUsd,
+        durationMs: Date.now() - startTime,
+        commitSummary: '',
+      };
     }
 
     // Push and create PR

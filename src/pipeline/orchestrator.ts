@@ -190,6 +190,18 @@ export class PipelineOrchestrator {
     implResult: Awaited<ReturnType<ImplementStage['execute']>>,
     pipelineStart: number,
   ): Promise<void> {
+    // Guard: if IMPLEMENT produced no commits, there is literally nothing for
+    // REVIEW or QA to act on (`git diff main...HEAD` is empty, Claude exits 1
+    // ~30s in with "refusing to advance to QA"). Stop here with a clear signal
+    // so a human can decide whether to retry, refine the card, or close it.
+    if (!implResult.commitSummary.trim()) {
+      throw new PermanentError(
+        `Implement produced no commits on branch "${implResult.branchName}" — ` +
+        'card may already be done, or the prompt was too vague for Claude to act on. ' +
+        'Halting before REVIEW.',
+      );
+    }
+
     // === REVIEW (inline) ===
     await this.trelloApi.moveCard(event.cardId, this.boardConfig.lists.review);
     console.log(`[Orchestrator] Running inline REVIEW for card ${event.cardId}`);
