@@ -58,6 +58,7 @@ function buildOrchestrator(opts: {
   const postError = vi.fn().mockResolvedValue(undefined);
   const commenter = {
     postError,
+    postNoCommitsWarning: vi.fn().mockResolvedValue(undefined),
     postImplementComplete: vi.fn().mockResolvedValue(undefined),
     postReviewStarted: vi.fn().mockResolvedValue(undefined),
     postReviewComplete: vi.fn().mockResolvedValue(undefined),
@@ -177,8 +178,8 @@ describe('PipelineOrchestrator — repo lock management', () => {
   });
 
   it('lock auto-expires past TTL — second card steals it instead of being re-enqueued', async () => {
-    // 65min TTL + a hair of slack
-    const STALE_MS = 70 * 60 * 1000;
+    // 130min TTL + a hair of slack
+    const STALE_MS = 135 * 60 * 1000;
     vi.useFakeTimers();
     const t0 = Date.now();
 
