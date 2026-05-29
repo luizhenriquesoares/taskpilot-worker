@@ -79,6 +79,7 @@ export class QaStage {
     const runResult = await runClaude({
       cwd: workDir,
       prompt,
+      timeoutMs: 20 * 60 * 1000, // 20 min — lighter than IMPLEMENT, tests+merge only
     });
 
     const costUsd = runResult.costUsd ?? 0;

@@ -85,6 +85,7 @@ export class ReviewStage {
     const runResult = await runClaude({
       cwd: workDir,
       prompt,
+      timeoutMs: 20 * 60 * 1000, // 20 min — lighter than IMPLEMENT, reading+fixing only
     });
 
     const costUsd = runResult.costUsd ?? 0;
