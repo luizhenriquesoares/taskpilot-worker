@@ -127,6 +127,21 @@ export class TrelloCommenter {
     await this.safeComment(cardId, lines.join('\n'));
   }
 
+  async postNoCommitsWarning(cardId: string, projectName?: string): Promise<void> {
+    const project = projectName ? ` [${projectName}]` : '';
+    const comment = [
+      `⚠️ **Claude não encontrou nada para implementar**${project}`,
+      '',
+      'Isso pode significar que:',
+      '- A funcionalidade **já está implementada** no código',
+      '- A descrição do card precisa de **mais detalhes** para o Claude entender o que fazer',
+      '',
+      '**O que fazer:** verifique se a feature já existe no repositório. Se não existir, adicione na descrição do card: o que implementar, onde (arquivo/endpoint), e qual o comportamento esperado.',
+    ].join('\n');
+
+    await this.safeComment(cardId, comment);
+  }
+
   async postError(cardId: string, stage: PipelineStage, errorMessage: string, projectName?: string): Promise<void> {
     const project = projectName ? ` [${projectName}]` : '';
     const comment = [

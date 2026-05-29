@@ -151,6 +151,26 @@ export class WebhookHandler {
   }
 
   /**
+   * Manually re-enqueue a card for IMPLEMENT. Used by the admin endpoint to
+   * restart jobs that failed due to transient errors (e.g. disk full, timeout).
+   */
+  async requeueCard(cardId: string): Promise<{ enqueued: boolean; messageId?: string; error?: string }> {
+    const trelloApi = new TrelloApi(this.trelloCredentials);
+    const card = await trelloApi.getCard(cardId);
+
+    const project = await this.resolveProject(cardId, card.idList);
+    if (!project) {
+      return { enqueued: false, error: `Card is not in a recognised project list (listId: ${card.idList})` };
+    }
+
+    console.log(`[Webhook] Admin re-queuing card "${card.name}" in project "${project.name}"`);
+    const event = this.buildWorkerEvent(cardId, this.boardConfig.boardId, project);
+    const messageId = await this.sqsProducer.sendMessage(event);
+    console.log(`[Webhook] Admin re-queue SQS message sent: ${messageId}`);
+    return { enqueued: true, messageId };
+  }
+
+  /**
    * Pick the project for a card. Prefers list-based routing (the historical
    * mechanism) — projects with a dedicated Trello list match on `targetListId`.
    * If the card landed in the configured triage list, fall back to label-based

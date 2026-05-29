@@ -89,6 +89,20 @@ export function createApp(
     res.json(orchestrator.listRepoLocks());
   });
 
+  app.post('/api/admin/requeue', async (req, res) => {
+    const cardId = (req.body as { cardId?: unknown })?.cardId;
+    if (typeof cardId !== 'string' || !cardId) {
+      res.status(400).json({ error: 'cardId (string) is required in body' });
+      return;
+    }
+    try {
+      const result = await webhookHandler.requeueCard(cardId);
+      res.status(result.enqueued ? 200 : 422).json(result);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   app.post('/api/admin/release-lock', (req, res) => {
     const repoUrl = (req.body as { repoUrl?: unknown })?.repoUrl;
     if (typeof repoUrl !== 'string' || !repoUrl) {

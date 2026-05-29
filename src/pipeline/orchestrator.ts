@@ -20,10 +20,10 @@ import type { BoardConfig } from '../config/types.js';
 // and reject it as permanent so the SQS DLQ catches it instead of looping.
 
 // Lock auto-expires past this point. Slightly larger than STAGE_TIMEOUT_MS
-// (60min) so the in-pipeline timeout always fires first under normal flow;
+// (120min) so the in-pipeline timeout always fires first under normal flow;
 // TTL is the safety net for orphaned locks (process killed mid-run before
 // the finally block, etc.) so other cards on the same repo eventually unblock.
-const LOCK_TTL_MS = 65 * 60 * 1000;
+const LOCK_TTL_MS = 130 * 60 * 1000;
 
 interface RepoLock {
   cardId: string;
@@ -129,8 +129,10 @@ export class PipelineOrchestrator {
     const onEvent = this.broadcaster?.createStreamHandler(event.cardId, cardName, stageName);
 
     try {
-      // 60 min — covers the full inline pipeline (IMPLEMENT + REVIEW + QA).
-      const STAGE_TIMEOUT_MS = 60 * 60 * 1000;
+      // 120 min — covers the full inline pipeline (IMPLEMENT 30min + REVIEW 20min + QA 20min).
+      // Previously 60min which was too short: IMPLEMENT alone can take 30min, leaving no
+      // time for REVIEW+QA to finish and merge the PR.
+      const STAGE_TIMEOUT_MS = 120 * 60 * 1000;
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error(`Pipeline timed out after ${STAGE_TIMEOUT_MS / 60_000}min`)), STAGE_TIMEOUT_MS),
       );
@@ -221,6 +223,16 @@ export class PipelineOrchestrator {
 
     try {
       return await this.runInlineReviewAndQa(event, cardName, implResult, pipelineStart);
+    } catch (err) {
+      // When IMPLEMENT produced no commits, post a friendly message and move the
+      // card back to its origin list so it doesn't stay stuck in "Doing".
+      if (!implResult.commitSummary.trim()) {
+        await this.commenter.postNoCommitsWarning(event.cardId, event.projectName).catch(() => {});
+        await this.trelloApi.moveCard(event.cardId, event.originListId).catch((moveErr) => {
+          console.warn(`[Orchestrator] Failed to move card back to origin: ${(moveErr as Error).message}`);
+        });
+      }
+      throw err;
     } finally {
       // Always clean up inline work directory once IMPLEMENT has produced one,
       // regardless of whether REVIEW/QA succeeded. Prevents /tmp exhaustion that
