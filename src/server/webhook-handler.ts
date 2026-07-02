@@ -12,6 +12,16 @@ interface RawBodyRequest extends Request {
   rawBody?: string;
 }
 
+// Anti-loop guard for RETRY. Moving a card back from Done into a project list
+// re-fires the webhook as a RETRY ("analyze and fix"). If something keeps
+// bouncing a card Done → project (a Butler rule, a stuck automation, or a
+// human), the pipeline would reprocess it forever, burning Claude budget and
+// opening PRs on every pass. We stamp a hidden marker comment on each RETRY and
+// refuse to enqueue once MAX_AUTO_RETRIES stamps exist, leaving the card for a
+// human instead of looping.
+const RETRY_MARKER = '<!-- taskpilot:retry -->';
+const MAX_AUTO_RETRIES = 2;
+
 interface TrelloWebhookBody {
   action: {
     type: string;
@@ -210,8 +220,21 @@ export class WebhookHandler {
 
     let retryFeedback: string | undefined;
     if (isRetry) {
-      console.log(`[Webhook] Card "${card.name}" reopened from Done → "${project.name}". Fetching feedback comments.`);
+      // Anti-loop: cap how many times a card can auto-RETRY. Prevents an
+      // endless Done → project → Done cycle from reprocessing forever.
+      const retryCount = await this.countRetryMarkers(card.id);
+      if (retryCount >= MAX_AUTO_RETRIES) {
+        console.warn(
+          `[Webhook] Card "${card.name}" already auto-retried ${retryCount}x ` +
+          `(>= ${MAX_AUTO_RETRIES}). Skipping to break the loop; needs human review.`,
+        );
+        await this.postRetryLimitNotice(card.id, retryCount);
+        return { enqueued: false, ignored: 'retry limit reached' };
+      }
+
+      console.log(`[Webhook] Card "${card.name}" reopened from Done → "${project.name}" (retry ${retryCount + 1}/${MAX_AUTO_RETRIES}). Fetching feedback comments.`);
       retryFeedback = await this.fetchRetryFeedback(card.id);
+      await this.stampRetryMarker(card.id, retryCount + 1);
     }
 
     const modeLabel = isRetry ? 'RETRY' : 'IMPLEMENT';
@@ -245,7 +268,9 @@ export class WebhookHandler {
   private async fetchRetryFeedback(cardId: string): Promise<string | undefined> {
     try {
       const trelloApi = new TrelloApi(this.trelloCredentials);
-      const comments = await trelloApi.getCardComments(cardId);
+      const comments = (await trelloApi.getCardComments(cardId))
+        // Drop our own bookkeeping markers so they don't pollute the prompt.
+        .filter((c) => !c.text.includes(RETRY_MARKER));
 
       if (comments.length === 0) {
         return 'No feedback comments found on the card. Review the task description and check what might be wrong.';
@@ -261,6 +286,51 @@ export class WebhookHandler {
     } catch (err) {
       console.error(`[Webhook] Failed to fetch retry feedback: ${(err as Error).message}`);
       return 'Could not fetch feedback comments. Review the card on Trello for stakeholder feedback.';
+    }
+  }
+
+  /** How many auto-RETRY marker comments this card already carries. */
+  private async countRetryMarkers(cardId: string): Promise<number> {
+    try {
+      const trelloApi = new TrelloApi(this.trelloCredentials);
+      const comments = await trelloApi.getCardComments(cardId);
+      return comments.filter((c) => c.text.includes(RETRY_MARKER)).length;
+    } catch (err) {
+      // Fail safe: if we can't read comments, assume the limit is reached so a
+      // read outage can't turn into an infinite retry loop.
+      console.error(
+        `[Webhook] Failed to count retry markers for ${cardId} (treating as limit reached): ${(err as Error).message}`,
+      );
+      return MAX_AUTO_RETRIES;
+    }
+  }
+
+  /** Stamp a hidden marker so the next RETRY can count this pass. */
+  private async stampRetryMarker(cardId: string, attempt: number): Promise<void> {
+    try {
+      const trelloApi = new TrelloApi(this.trelloCredentials);
+      await trelloApi.addComment(
+        cardId,
+        `${RETRY_MARKER}\n🔁 Auto-retry ${attempt}/${MAX_AUTO_RETRIES} disparado pelo TaskPilot.`,
+      );
+    } catch (err) {
+      console.error(`[Webhook] Failed to stamp retry marker for ${cardId}: ${(err as Error).message}`);
+    }
+  }
+
+  /** Tell humans the card hit the auto-retry ceiling and won't loop further. */
+  private async postRetryLimitNotice(cardId: string, retryCount: number): Promise<void> {
+    try {
+      const trelloApi = new TrelloApi(this.trelloCredentials);
+      await trelloApi.addComment(
+        cardId,
+        `⛔ **TaskPilot: limite de auto-retry atingido** (${retryCount}/${MAX_AUTO_RETRIES}).\n` +
+        'Este card foi reprocessado automaticamente vezes demais e NÃO será reenfileirado ' +
+        'para evitar loop. Revise o card manualmente; se quiser rodar de novo, mova-o para ' +
+        'fora do Done e limpe os comentários de auto-retry.',
+      );
+    } catch (err) {
+      console.error(`[Webhook] Failed to post retry-limit notice for ${cardId}: ${(err as Error).message}`);
     }
   }
 
