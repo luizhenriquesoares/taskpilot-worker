@@ -167,11 +167,16 @@ describe('WebhookHandler.handleWebhook', () => {
 
   it('detects retry mode when card moves from Done back to a project list', async () => {
     const sqs = mockSqsProducer();
-    // Stub fetchRetryFeedback so we don't make a real Trello API call.
+    // Stub fetchRetryFeedback + the anti-loop helpers so we don't hit Trello.
     const handler = new WebhookHandler(sqs, boardConfig, trelloCredentials, undefined, undefined);
-    (handler as unknown as { fetchRetryFeedback: typeof fetch }).fetchRetryFeedback = vi
-      .fn()
-      .mockResolvedValue('previous failure context');
+    const h = handler as unknown as {
+      fetchRetryFeedback: () => Promise<string>;
+      countRetryMarkers: () => Promise<number>;
+      stampRetryMarker: () => Promise<void>;
+    };
+    h.fetchRetryFeedback = vi.fn().mockResolvedValue('previous failure context');
+    h.countRetryMarkers = vi.fn().mockResolvedValue(0); // under the limit → allowed
+    h.stampRetryMarker = vi.fn().mockResolvedValue(undefined);
 
     const action = buildCardMovedAction(PROJECT_LIST_ID, 'l-done');
     const req = { body: { action }, headers: {} } as unknown as Request;
@@ -182,6 +187,34 @@ describe('WebhookHandler.handleWebhook', () => {
     const enqueued = (sqs.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(enqueued.isRetry).toBe(true);
     expect(enqueued.retryFeedback).toBe('previous failure context');
+    expect(h.stampRetryMarker).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT enqueue a retry once the auto-retry limit is reached (anti-loop)', async () => {
+    const sqs = mockSqsProducer();
+    const handler = new WebhookHandler(sqs, boardConfig, trelloCredentials, undefined, undefined);
+    const h = handler as unknown as {
+      fetchRetryFeedback: () => Promise<string>;
+      countRetryMarkers: () => Promise<number>;
+      stampRetryMarker: () => Promise<void>;
+      postRetryLimitNotice: () => Promise<void>;
+    };
+    // Already at/over the cap (MAX_AUTO_RETRIES = 2).
+    h.countRetryMarkers = vi.fn().mockResolvedValue(2);
+    h.fetchRetryFeedback = vi.fn();
+    h.stampRetryMarker = vi.fn();
+    const notice = vi.fn().mockResolvedValue(undefined);
+    h.postRetryLimitNotice = notice;
+
+    const action = buildCardMovedAction(PROJECT_LIST_ID, 'l-done');
+    const req = { body: { action }, headers: {} } as unknown as Request;
+    const res = mockResponse();
+
+    await handler.handleWebhook(req, res);
+
+    expect(sqs.sendMessage).not.toHaveBeenCalled();
+    expect(notice).toHaveBeenCalledTimes(1);
+    expect(h.fetchRetryFeedback).not.toHaveBeenCalled();
   });
 });
 
